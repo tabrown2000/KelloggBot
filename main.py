@@ -16,6 +16,7 @@ from selenium.webdriver.support.ui import Select, WebDriverWait
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from resume_faker import make_resume
+from loading import Loading_Animation
 
 from webdriver_manager.chrome import ChromeDriverManager
 os.environ['WDM_LOG_LEVEL'] = '0'
@@ -123,13 +124,13 @@ def generate_account(driver, fake_identity):
     driver.find_element_by_xpath(VERIFY_EMAIL_INPUT).send_keys(passcode)
     driver.find_element_by_xpath(VERIFY_EMAIL_BUTTON).click()
 
-    printf(f"successfully made account for fake email {email}")
+    # printf(f"successfully made account for fake email {email}")
 
 
 def fill_out_application_and_submit(driver, random_city, fake_identity):
     # make resume
     resume_filename = fake_identity['last_name']+'-Resume'
-    make_resume(fake_identity['first_name']+' '+fake_identity['last_name'], fake_identity['email'], fake_identity['phone'], resume_filename)
+    college_name = make_resume(fake_identity['first_name']+' '+fake_identity['last_name'], fake_identity['email'], fake_identity['phone'], resume_filename)
     printf(f"successfully created resume file: {resume_filename}.pdf")
 
     # wait for page to load
@@ -185,15 +186,21 @@ def fill_out_application_and_submit(driver, random_city, fake_identity):
     select.select_by_visible_text(gender)
     driver.find_element_by_xpath(MIXER_QUESTION_1_LABEL).click()
     driver.find_element_by_xpath(MIXER_QUESTION_2_LABEL).click()
-    driver.find_element_by_xpath('//select[@name="' + STATE_LABEL + '"]/option[text()="' + CITIES_TO_STATES[random_city] + '"]').click()
-    driver.find_element_by_xpath('//select[@name="' + PRESENT_EMPLOYEE + '"]/option[text()="' + random.choice([YES, NO]) + '"]').click()
-    driver.find_element_by_xpath('//select[@name="' + REFERRAL_LABEL + '"]/option[text()="' + random.choice(REFERRAL_LIST) + '"]').click()
-    driver.find_element_by_xpath('//select[@name="' + ETHNICITY_LABEL + '"]/option[text()="' + random.choice(ETHNICITY_LIST) + '"]').click()
+
+    # Optional Info
+    try:
+        driver.find_element_by_xpath('//select[@name="' + STATE_LABEL + '"]/option[text()="' + CITIES_TO_STATES[random_city] + '"]').click()
+        driver.find_element_by_xpath('//select[@name="' + PRESENT_EMPLOYEE + '"]/option[text()="' + random.choice([YES, NO]) + '"]').click()
+        driver.find_element_by_xpath('//select[@name="' + REFERRAL_LABEL + '"]/option[text()="' + random.choice(REFERRAL_LIST) + '"]').click()
+        driver.find_element_by_xpath('//select[@name="' + ETHNICITY_LABEL + '"]/option[text()="' + random.choice(ETHNICITY_LIST) + '"]').click()
+    except:
+        printf('Some optional info left blank')
+        pass
 
     els = driver.find_elements_by_xpath(LONG_PERIODS_QUESTION_LABEL)
     [el.click() for el in els]
 
-    fill_out_education_info(driver)
+    fill_out_education_info(driver, college_name)
     fill_out_work_history(driver)
 
     time.sleep(3)
@@ -201,11 +208,14 @@ def fill_out_application_and_submit(driver, random_city, fake_identity):
     time.sleep(3)
     try:
         driver.find_element_by_xpath('//*[@class="rcmSuccessBackToResultsBtn"]')
-        print(f"successfully submitted application")
+        printf(f"successfully submitted application")
     except Exception as e:
-        print(e)
-        print('There may be unfilled items. Stop script and complete the application manually or wait to abort')
-        time.sleep(5)
+        printf(e)
+        if (args.debug == DEBUG_ENABLED):
+            printf(f'There may be unfilled entries. You have 15 seconds to fill the missing info and click APPLY')
+            time.sleep(15)
+        elif (args.debug == DEBUG_DISABLED):
+            printf(f'Could not confirm submission. There may have been unfilled entries.')
 
     # take out the trash
     os.remove(resume_filename+'.pdf')
@@ -225,14 +235,15 @@ def random_email(name=None):
     return random.choices(mailGens, MAIL_GENERATION_WEIGHTS)[0](*name.split(" ")).lower() + "@" + \
            requests.get('https://api.mail.tm/domains').json().get('hydra:member')[0].get('domain')
 
-def fill_out_education_info(driver):
+def fill_out_education_info(driver, college):
     try:
         driver.find_element_by_xpath(DEGREE_COMPLETION_LABEL + '/option[text()="' + random.choice(GRADUATION_STATUS) + '"]').click()
         driver.find_element_by_xpath(DEGREE_MAJOR_LABEL + '/option[text()="' + random.choice(DEGREE_MAJORS) + '"]').click()
         driver.find_element_by_xpath(DEGREE_TYPE_LABEL + '/option[text()="' + random.choice(DEGREE_TYPES) + '"]').click()
-        print('successfully filled out degree information')
+        driver.find_element_by_xpath(EDUCATION_INSTITUTION).send_keys(college)
+        printf('successfully filled out degree information')
     except Exception as e:
-        print(f'FAILED TO FILL OUT EDUCATION INFO: {e}')
+        printf(f'FAILED TO FILL OUT EDUCATION INFO: {e}')
         # TODO: Implement click "remove" on education info section
     time.sleep(2)
 
@@ -241,10 +252,11 @@ def fill_out_work_history(driver):
     for i in range(2):
         try:
             driver.find_element_by_xpath('(//select[@name="' + INDUSTRY_LABEL + '"]/option[text()="' + random.choice(INDUSTRY_LIST) + '"])[' + str(i+1) + ']').click()
+            if i == 2: printf(f'successfully filled out work history information')
         except Exception as e:
-            print(f'FAILED TO FILL OUT WORK HISTORY: {e}')
+            printf(f'FAILED TO FILL OUT WORK HISTORY: {e}')
             # TODO: Implement click "remove" on work history section
-            pass
+            break
 
 def random_phone(format=None):
     area_code = str(random.choice(AREA_CODES))
@@ -267,11 +279,14 @@ def random_phone(format=None):
 
 def main():
     while True:
+        message = Loading_Animation()
         random_city = random.choice(list(CITIES_TO_URLS.keys()))
         try:
+            message.start_animation(f'STARTING DRIVER')
             driver = start_driver(random_city)
+            message.stop_animation(f'Done')
         except Exception as e:
-            printf(f"FAILED TO START DRIVER: {e}")
+            message.stop_animation(f'FAILED TO START DRIVER: {e}')
             pass
 
         time.sleep(2)
@@ -280,18 +295,18 @@ def main():
         fake_last_name = fake.last_name()
         fake_phone = random_phone()
         if (args.mailtm == MAILTM_DISABLED):
-            printf(f"USING GUERRILLA TO CREATE EMAIL")
+            message.start_animation(f'USING GUERRILLA TO CREATE EMAIL')
             response = requests.get('https://api.guerrillamail.com/ajax.php?f=get_email_address').json()
 
             fake_email = response.get('email_addr')
             mail_sid = response.get('sid_token')
-            printf(f"EMAIL CREATED")
+            message.stop_animation(f'EMAIL CREATED: {fake_email}')
 
         elif (args.mailtm == MAILTM_ENABLED):
-            printf(f"USING MAILTM TO CREATE EMAIL")
+            message.start_animation(f'USING MAILTM TO CREATE EMAIL')
             fake_email = requests.post('https://api.mail.tm/accounts', data='{"address":"'+random_email(fake_first_name+' '+fake_last_name)+'","password":" "}', headers={'Content-Type': 'application/json'}).json().get('address')
             mail_sid = requests.post('https://api.mail.tm/token', data='{"address":"'+fake_email+'","password":" "}', headers={'Content-Type': 'application/json'}).json().get('token')
-            printf(f"EMAIL CREATED")
+            message.stop_animation(f'EMAIL CREATED: {fake_email}')
 
         fake_identity = {
             'first_name': fake_first_name,
@@ -302,20 +317,24 @@ def main():
         }
 
         try:
+            message.start_animation(f'GENERATING ACCOUNT (may take a while)')
             generate_account(driver, fake_identity)
+            message.stop_animation(f'ACCOUNT CREATED')
         except Exception as e:
-            printf(f"FAILED TO CREATE ACCOUNT: {e}")
+            message.stop_animation(f'FAILED TO CREATE ACCOUNT: {e}')
             pass
 
         try:
             fill_out_application_and_submit(driver, random_city, fake_identity)
+            # TODO: Implement animation for all the print statements in this function
         except Exception as e:
-            printf(f"FAILED TO FILL OUT APPLICATION AND SUBMIT: {e}")
+            printf(f'\nFAILED TO FILL OUT APPLICATION AND SUBMIT: {e}')
             pass
             driver.close()
             continue
 
         driver.close()
+        message.__del__()
         time.sleep(5)
 
 
